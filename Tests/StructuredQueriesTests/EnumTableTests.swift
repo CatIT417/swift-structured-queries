@@ -50,6 +50,36 @@
           ("imageCaption", "imageURL") VALUES ('Blob', 'https://www.pointfree.co/blob.jpg')
           """
         )
+        try db.execute(
+          """
+          CREATE TABLE "discriminatedAttachments" (
+            "id" INTEGER PRIMARY KEY,
+            "kind" TEXT NOT NULL,
+            "link" TEXT,
+            "note" TEXT,
+            "imageCaption" TEXT,
+            "imageURL" TEXT
+          ) STRICT
+          """
+        )
+        try db.execute(
+          """
+          INSERT INTO "discriminatedAttachments"
+          ("kind", "link") VALUES ('link', 'https://www.pointfree.co')
+          """
+        )
+        try db.execute(
+          """
+          INSERT INTO "discriminatedAttachments"
+          ("kind", "note") VALUES ('plain_note', 'Today was a good day')
+          """
+        )
+        try db.execute(
+          """
+          INSERT INTO "discriminatedAttachments"
+          ("kind", "imageCaption", "imageURL") VALUES ('image', 'Blob', 'https://www.pointfree.co/blob.jpg')
+          """
+        )
       }
 
       @Test func selectAll() {
@@ -381,6 +411,130 @@
           """
         }
       }
+
+      @Test func discriminatedSelectAll() {
+        assertQuery(
+          DiscriminatedAttachment.all
+        ) {
+          """
+          SELECT "discriminatedAttachments"."id", "discriminatedAttachments"."kind", "discriminatedAttachments"."link", "discriminatedAttachments"."note", "discriminatedAttachments"."imageCaption", "discriminatedAttachments"."imageURL"
+          FROM "discriminatedAttachments"
+          """
+        } results: {
+          """
+          ┌───────────────────────────────────────────────────┐
+          │ DiscriminatedAttachment(                          │
+          │   id: 1,                                          │
+          │   kind: .link(URL(https://www.pointfree.co))      │
+          │ )                                                 │
+          ├───────────────────────────────────────────────────┤
+          │ DiscriminatedAttachment(                          │
+          │   id: 2,                                          │
+          │   kind: .note("Today was a good day")             │
+          │ )                                                 │
+          ├───────────────────────────────────────────────────┤
+          │ DiscriminatedAttachment(                          │
+          │   id: 3,                                          │
+          │   kind: .image(                                   │
+          │     DiscriminatedAttachment.Image(                │
+          │       caption: "Blob",                            │
+          │       url: URL(https://www.pointfree.co/blob.jpg) │
+          │     )                                             │
+          │   )                                               │
+          │ )                                                 │
+          └───────────────────────────────────────────────────┘
+          """
+        }
+      }
+
+      @Test func discriminatedInsert() {
+        assertQuery(
+          DiscriminatedAttachment.insert {
+            DiscriminatedAttachment.Draft(kind: .note("Hello world!"))
+            DiscriminatedAttachment.Draft(
+              kind: .image(
+                DiscriminatedAttachment.Image(
+                  caption: "Image",
+                  url: URL(string: "image.jpg")!
+                )
+              )
+            )
+          }
+          .returning(\.self)
+        ) {
+          """
+          INSERT INTO "discriminatedAttachments"
+          ("id", "kind", "link", "note", "imageCaption", "imageURL")
+          VALUES
+          (NULL, 'plain_note', NULL, 'Hello world!', NULL, NULL), (NULL, 'image', NULL, NULL, 'Image', 'image.jpg')
+          RETURNING "id", "kind", "link", "note", "imageCaption", "imageURL"
+          """
+        } results: {
+          """
+          ┌────────────────────────────────────┐
+          │ DiscriminatedAttachment(           │
+          │   id: 4,                           │
+          │   kind: .note("Hello world!")      │
+          │ )                                  │
+          ├────────────────────────────────────┤
+          │ DiscriminatedAttachment(           │
+          │   id: 5,                           │
+          │   kind: .image(                    │
+          │     DiscriminatedAttachment.Image( │
+          │       caption: "Image",            │
+          │       url: URL(image.jpg)          │
+          │     )                              │
+          │   )                                │
+          │ )                                  │
+          └────────────────────────────────────┘
+          """
+        }
+      }
+
+      @Test func discriminatedUpdate() {
+        assertQuery(
+          DiscriminatedAttachment
+            .find(1)
+            .update {
+              $0.kind = .note("Good bye world!")
+            }
+            .returning(\.self)
+        ) {
+          """
+          UPDATE "discriminatedAttachments"
+          SET "kind" = 'plain_note', "link" = NULL, "note" = 'Good bye world!', "imageCaption" = NULL, "imageURL" = NULL
+          WHERE (("discriminatedAttachments"."id") IN ((1)))
+          RETURNING "id", "kind", "link", "note", "imageCaption", "imageURL"
+          """
+        } results: {
+          """
+          ┌──────────────────────────────────┐
+          │ DiscriminatedAttachment(         │
+          │   id: 1,                         │
+          │   kind: .note("Good bye world!") │
+          │ )                                │
+          └──────────────────────────────────┘
+          """
+        }
+      }
+
+      @Test func discriminatedSelection() {
+        assertQuery(
+          Values(
+            DiscriminatedAttachment.Kind.Selection.note("Hello, world!")
+          )
+        ) {
+          """
+          SELECT 'plain_note' AS "kind", NULL AS "link", 'Hello, world!' AS "note", NULL AS "imageCaption", NULL AS "imageURL"
+          """
+        } results: {
+          """
+          ┌────────────────────────────────────────────────────┐
+          │ DiscriminatedAttachment.Kind.note("Hello, world!") │
+          └────────────────────────────────────────────────────┘
+          """
+        }
+      }
     }
   }
 
@@ -403,6 +557,26 @@
       var kind: Kind
       fileprivate enum Kind: String, QueryBindable { case youtube, vimeo }
     }
+    @Selection fileprivate struct Image {
+      @Column("imageCaption")
+      let caption: String
+      @Column("imageURL")
+      let url: URL
+    }
+  }
+
+  @Table private struct DiscriminatedAttachment {
+    let id: Int
+    let kind: Kind
+
+    @CasePathable @Discriminator("kind") @Selection
+    fileprivate enum Kind {
+      case link(URL)
+      @Discriminator("plain_note")
+      case note(String)
+      case image(DiscriminatedAttachment.Image)
+    }
+
     @Selection fileprivate struct Image {
       @Column("imageCaption")
       let caption: String

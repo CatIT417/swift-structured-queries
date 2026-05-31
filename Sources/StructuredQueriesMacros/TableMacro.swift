@@ -6,6 +6,109 @@ import SwiftSyntaxMacros
 
 public enum TableMacro {}
 
+private let discriminatorIdentifier: TokenSyntax = "_discriminator"
+
+private func discriminatorColumnName(
+  in declaration: some DeclGroupSyntax,
+  diagnostics: inout [Diagnostic]
+) -> ExprSyntax? {
+  guard let discriminator = declaration.macroApplication(for: "Discriminator")
+  else { return nil }
+  guard case .argumentList(let arguments) = discriminator.arguments
+  else {
+    diagnostics.append(
+      Diagnostic(
+        node: discriminator,
+        message: MacroExpansionErrorMessage("Argument must be a non-empty string literal")
+      )
+    )
+    return nil
+  }
+
+  var columnName: ExprSyntax?
+  for argument in arguments {
+    switch argument.label?.text {
+    case nil:
+      if !argument.expression.isNonEmptyStringLiteral {
+        diagnostics.append(
+          Diagnostic(
+            node: argument.expression,
+            message: MacroExpansionErrorMessage("Argument must be a non-empty string literal")
+          )
+        )
+      }
+      columnName = argument.expression
+
+    case "value":
+      diagnostics.append(
+        Diagnostic(
+          node: argument,
+          message: MacroExpansionErrorMessage(
+            "Argument 'value' is only supported on enum cases"
+          )
+        )
+      )
+
+    case let label?:
+      fatalError("Unexpected argument: \(label)")
+    }
+  }
+
+  if columnName == nil {
+    diagnostics.append(
+      Diagnostic(
+        node: discriminator,
+        message: MacroExpansionErrorMessage("Argument must be a non-empty string literal")
+      )
+    )
+  }
+  return columnName
+}
+
+private func discriminatorValue(
+  in caseDecl: EnumCaseDeclSyntax,
+  identifier: TokenSyntax,
+  diagnostics: inout [Diagnostic]
+) -> ExprSyntax {
+  var value = ExprSyntax(StringLiteralExprSyntax(content: identifier.text.trimmingBackticks()))
+  for attribute in caseDecl.attributes {
+    guard
+      let attribute = attribute.as(AttributeSyntax.self),
+      let attributeName = attribute.attributeName.as(IdentifierTypeSyntax.self)?.name.text,
+      attributeName == "Discriminator"
+    else { continue }
+    guard case .argumentList(let arguments) = attribute.arguments
+    else {
+      diagnostics.append(
+        Diagnostic(
+          node: attribute,
+          message: MacroExpansionErrorMessage("Argument must be a non-empty string literal")
+        )
+      )
+      continue
+    }
+
+    for argument in arguments {
+      switch argument.label?.text {
+      case nil, "value":
+        if !argument.expression.isNonEmptyStringLiteral {
+          diagnostics.append(
+            Diagnostic(
+              node: argument.expression,
+              message: MacroExpansionErrorMessage("Argument must be a non-empty string literal")
+            )
+          )
+        }
+        value = argument.expression
+
+      case let label?:
+        fatalError("Unexpected argument: \(label)")
+      }
+    }
+  }
+  return value
+}
+
 extension TableMacro: ExtensionMacro {
   public static func expansion<D: DeclGroupSyntax, T: TypeSyntaxProtocol, C: MacroExpansionContext>(
     of node: AttributeSyntax,
@@ -177,6 +280,11 @@ extension TableMacro: ExtensionMacro {
       }
     }
 
+    let discriminatorColumn =
+      declaration.is(EnumDeclSyntax.self)
+      ? discriminatorColumnName(in: declaration, diagnostics: &diagnostics)
+      : nil
+    var discriminatorProperty: DeclSyntax?
     var initDecoder: DeclSyntax?
     if declaration.is(StructDeclSyntax.self) {
       var decodings: [String] = []
@@ -528,6 +636,16 @@ extension TableMacro: ExtensionMacro {
     } else if declaration.is(EnumDeclSyntax.self) {
       var decodings: [String] = []
       var decodingAssignments: [String] = []
+      var discriminatorAssignments: [String] = []
+      var discriminatorCases: [String] = []
+      if discriminatorColumn != nil {
+        columnWidths.append("Swift.String._columnWidth")
+        decodings.append(
+          """
+          let \(discriminatorIdentifier) = try decoder.decode(Swift.String.self)
+          """
+        )
+      }
       for member in declaration.memberBlock.members {
         guard let caseDecl = member.decl.as(EnumCaseDeclSyntax.self) else { continue }
         guard
@@ -555,6 +673,10 @@ extension TableMacro: ExtensionMacro {
         }
 
         let identifier = caseElement.name
+        let caseDiscriminatorValue =
+          discriminatorColumn != nil
+          ? discriminatorValue(in: caseDecl, identifier: identifier, diagnostics: &diagnostics)
+          : nil
         var columnName = ExprSyntax(
           StringLiteralExprSyntax(content: identifier.text.trimmingBackticks())
         )
@@ -696,16 +818,57 @@ extension TableMacro: ExtensionMacro {
           }
           """
         )
+        if let caseDiscriminatorValue {
+          discriminatorCases.append(
+            """
+            case .\(identifier): \(caseDiscriminatorValue)
+            """
+          )
+          discriminatorAssignments.append(
+            """
+            case \(caseDiscriminatorValue):
+            guard let \(identifier) else {
+            throw \(moduleName).QueryDecodingError.missingRequiredColumn
+            }
+            self = .\(identifier)(\(identifier))
+            """
+          )
+        }
       }
-      initDecoder = """
+      if discriminatorColumn != nil {
+        discriminatorProperty = """
 
-        public \(nonisolated)init(decoder: inout some \(moduleName).QueryDecoder) throws {
-        \(raw: decodings.joined(separator: "\n"))
-        \(raw: decodingAssignments.joined(separator: " else ")) else {
-        throw \(moduleName).QueryDecodingError.missingRequiredColumn
+          public var \(discriminatorIdentifier): Swift.String {
+          switch self {
+          \(raw: discriminatorCases.joined(separator: "\n"))
+          }
+          }
+          """
+        initDecoder = """
+
+          public \(nonisolated)init(decoder: inout some \(moduleName).QueryDecoder) throws {
+          \(raw: decodings.joined(separator: "\n"))
+          guard let \(discriminatorIdentifier) else {
+          throw \(moduleName).QueryDecodingError.missingRequiredColumn
+          }
+          switch \(discriminatorIdentifier) {
+          \(raw: discriminatorAssignments.joined(separator: "\n"))
+          default:
+          throw \(moduleName).QueryDecodingError.missingRequiredColumn
+          }
+          }
+          """
+      } else {
+        initDecoder = """
+
+          public \(nonisolated)init(decoder: inout some \(moduleName).QueryDecoder) throws {
+          \(raw: decodings.joined(separator: "\n"))
+          \(raw: decodingAssignments.joined(separator: " else ")) else {
+          throw \(moduleName).QueryDecodingError.missingRequiredColumn
+          }
+          }
+          """
         }
-        }
-        """
     }
 
     var draft: DeclSyntax?
@@ -875,6 +1038,9 @@ extension TableMacro: ExtensionMacro {
       public typealias From = Swift.Never
       """,
     ])
+    if let discriminatorProperty {
+      statics.append(discriminatorProperty)
+    }
     let columnWidth = """
       var columnWidth = 0
       columnWidth += \(columnWidths.map(\.description).joined(separator: "\ncolumnWidth += "))
@@ -922,6 +1088,7 @@ extension TableMacro: MemberMacro {
     var writableColumns: [TokenSyntax] = []
     var selectedColumns: [(name: TokenSyntax, type: TypeSyntax?)] = []
     var columnsProperties: [DeclSyntax] = []
+    var diagnostics: [Diagnostic] = []
     var expansionFailed = false
 
     // NB: A compiler bug prevents us from applying the '@_Draft' macro directly
@@ -1211,6 +1378,25 @@ extension TableMacro: MemberMacro {
         """
       )
     } else if declaration.is(EnumDeclSyntax.self) {
+      let discriminatorColumn = discriminatorColumnName(
+        in: declaration,
+        diagnostics: &diagnostics
+      )
+      var enumCaseColumns: [(name: TokenSyntax, type: TypeSyntax?)] = []
+      var discriminatorValues: [String: ExprSyntax] = [:]
+      if let discriminatorColumn {
+        columnsProperties.append(
+          """
+          public let \(discriminatorIdentifier) = \(moduleName).TableColumn<QueryValue, Swift.String>(
+          \(discriminatorColumn),
+          keyPath: \\QueryValue.\(discriminatorIdentifier)
+          )
+          """
+        )
+        allColumnNames.append(discriminatorIdentifier)
+        writableColumns.append(discriminatorIdentifier)
+        selectedColumns.append((discriminatorIdentifier, "Swift.String"))
+      }
       for member in declaration.memberBlock.members {
         guard
           let caseDecl = member.decl.as(EnumCaseDeclSyntax.self),
@@ -1222,6 +1408,13 @@ extension TableMacro: MemberMacro {
         else { continue }
 
         let identifier = caseElement.name
+        if discriminatorColumn != nil {
+          discriminatorValues[identifier.text] = discriminatorValue(
+            in: caseDecl,
+            identifier: identifier,
+            diagnostics: &diagnostics
+          )
+        }
         var columnName = ExprSyntax(
           StringLiteralExprSyntax(content: identifier.text.trimmingBackticks())
         )
@@ -1275,6 +1468,7 @@ extension TableMacro: MemberMacro {
           }
         }
 
+        enumCaseColumns.append((identifier, columnQueryValueType))
         selectedColumns.append((identifier, columnQueryValueType))
 
         let defaultValue = parameter.defaultValue?.value.rewritten(selfRewriter)
@@ -1318,8 +1512,11 @@ extension TableMacro: MemberMacro {
         if let defaultValue {
           argument.append(" = \(type)(queryOutput: \(defaultValue))")
         }
-        let staticColumns = selectedColumns.map {
+        var staticColumns = enumCaseColumns.map {
           $0 == identifier ? "\($0)" : "\($1)?(queryOutput: nil)" as ExprSyntax
+        }
+        if let discriminatorValue = discriminatorValues[identifier.text] {
+          staticColumns.insert(discriminatorValue, at: 0)
         }
         let staticInitialization =
           staticColumns
@@ -1426,7 +1623,13 @@ extension TableMacro: MemberMacro {
       conformances = protocolNames.map { "\(moduleName).\($0)" }
     }
 
-    if columnsProperties.isEmpty {
+    if declaration.is(EnumDeclSyntax.self), allColumns.isEmpty {
+      expansionFailed = true
+    } else if columnsProperties.isEmpty {
+      expansionFailed = true
+    }
+
+    if !diagnostics.isEmpty {
       expansionFailed = true
     }
 

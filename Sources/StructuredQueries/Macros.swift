@@ -12,6 +12,7 @@ import StructuredQueriesCore
   PartialSelectStatement,
   PrimaryKeyedTable,
   names: named(From),
+  named(_discriminator),
   named(columns),
   named(_columnWidth),
   named(init(_:)),
@@ -78,6 +79,7 @@ public macro Table(
   PartialSelectStatement,
   PrimaryKeyedTable,
   names: named(From),
+  named(_discriminator),
   named(columns),
   named(_columnWidth),
   named(init(_:)),
@@ -137,6 +139,20 @@ public macro Columns(
   #externalMacro(
     module: "StructuredQueriesMacros",
     type: "ColumnsMacro"
+  )
+
+/// Adds a discriminator column to an enum table.
+///
+/// Apply this macro to an enum `@Table` or `@Selection` to persist a string column that identifies
+/// the active case. Apply it to an enum case to customize that case's discriminator value.
+@attached(peer)
+public macro Discriminator(
+  _ name: String = "",
+  value: String = ""
+) =
+  #externalMacro(
+    module: "StructuredQueriesMacros",
+    type: "DiscriminatorMacro"
   )
 
 /// Tells StructuredQueries not to consider the annotated property a column of the table.

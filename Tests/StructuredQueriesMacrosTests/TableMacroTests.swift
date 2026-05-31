@@ -2590,6 +2590,126 @@ extension SnapshotTests {
       }
     }
 
+    @Test func enumDiscriminator() {
+      assertMacro {
+        """
+        @CasePathable @Discriminator("kind") @Table
+        enum Post {
+          case photo(Photo)
+          @Discriminator("plain_note")
+          case note(String = "")
+        }
+        """
+      } expansion: {
+        #"""
+        @CasePathable
+        enum Post {
+          case photo(Photo)
+          case note(String = "")
+
+          public nonisolated struct TableColumns: StructuredQueriesCore.TableDefinition {
+            public typealias QueryValue = Post
+            public let _discriminator = StructuredQueriesCore.TableColumn<QueryValue, Swift.String>(
+              "kind",
+              keyPath: \QueryValue._discriminator
+            )
+            public let photo = StructuredQueriesCore._TableColumn<QueryValue, Photo?>.for("photo", keyPath: \QueryValue.photo)
+            public let note = StructuredQueriesCore._TableColumn<QueryValue, String?>.for("note", keyPath: \QueryValue.note, default: "")
+            public static var allColumns: [any StructuredQueriesCore.TableColumnExpression] {
+              var allColumns: [any StructuredQueriesCore.TableColumnExpression] = []
+              allColumns.append(contentsOf: QueryValue.columns._discriminator._allColumns)
+              allColumns.append(contentsOf: QueryValue.columns.photo._allColumns)
+              allColumns.append(contentsOf: QueryValue.columns.note._allColumns)
+              return allColumns
+            }
+            public static var writableColumns: [any StructuredQueriesCore.WritableTableColumnExpression] {
+              var writableColumns: [any StructuredQueriesCore.WritableTableColumnExpression] = []
+              writableColumns.append(contentsOf: QueryValue.columns._discriminator._writableColumns)
+              writableColumns.append(contentsOf: QueryValue.columns.photo._writableColumns)
+              writableColumns.append(contentsOf: QueryValue.columns.note._writableColumns)
+              return writableColumns
+            }
+            public var queryFragment: QueryFragment {
+              "\(self._discriminator), \(self.photo), \(self.note)"
+            }
+          }
+
+          public nonisolated struct Selection: StructuredQueriesCore.TableExpression {
+            public typealias QueryValue = Post
+            public let allColumns: [any StructuredQueriesCore.QueryExpression]
+            public static func photo(
+              _ photo: some StructuredQueriesCore.QueryExpression<Photo>
+            ) -> Self {
+              var allColumns: [any StructuredQueriesCore.QueryExpression] = []
+              allColumns.append(contentsOf: "photo"._allColumns)
+              allColumns.append(contentsOf: photo._allColumns)
+              allColumns.append(contentsOf: String?(queryOutput: nil)._allColumns)
+              return Self(allColumns: allColumns)
+            }
+            public static func note(
+              _ note: some StructuredQueriesCore.QueryExpression<String>
+            ) -> Self {
+              var allColumns: [any StructuredQueriesCore.QueryExpression] = []
+              allColumns.append(contentsOf: "plain_note"._allColumns)
+              allColumns.append(contentsOf: Photo?(queryOutput: nil)._allColumns)
+              allColumns.append(contentsOf: note._allColumns)
+              return Self(allColumns: allColumns)
+            }
+          }
+        }
+
+        nonisolated extension Post: StructuredQueriesCore.Table, StructuredQueriesCore.PartialSelectStatement {
+          public typealias QueryValue = Self
+          public typealias From = Swift.Never
+
+          public var _discriminator: Swift.String {
+            switch self {
+            case .photo:
+              "photo"
+            case .note:
+              "plain_note"
+            }
+          }
+          public nonisolated static var columns: TableColumns {
+            TableColumns()
+          }
+          public nonisolated static var _columnWidth: Int {
+            var columnWidth = 0
+            columnWidth += Swift.String._columnWidth
+            columnWidth += Photo._columnWidth
+            columnWidth += String._columnWidth
+            return columnWidth
+          }
+          public nonisolated static var tableName: String {
+            "posts"
+          }
+          public nonisolated init(decoder: inout some StructuredQueriesCore.QueryDecoder) throws {
+            let _discriminator = try decoder.decode(Swift.String.self)
+            let photo = try decoder.decode(Photo.self)
+            let note = try decoder.decode(String.self)
+            guard let _discriminator else {
+              throw StructuredQueriesCore.QueryDecodingError.missingRequiredColumn
+            }
+            switch _discriminator {
+            case "photo":
+              guard let photo else {
+                throw StructuredQueriesCore.QueryDecodingError.missingRequiredColumn
+              }
+              self = .photo(photo)
+            case "plain_note":
+              guard let note else {
+                throw StructuredQueriesCore.QueryDecodingError.missingRequiredColumn
+              }
+              self = .note(note)
+            default:
+              throw StructuredQueriesCore.QueryDecodingError.missingRequiredColumn
+            }
+          }
+        }
+        """#
+      }
+    }
+
     @Test func enumDiagnostic() {
       assertMacro {
         """
