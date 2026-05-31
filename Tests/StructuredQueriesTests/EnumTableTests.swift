@@ -80,6 +80,21 @@
           ("kind", "imageCaption", "imageURL") VALUES ('image', 'Blob', 'https://www.pointfree.co/blob.jpg')
           """
         )
+        try db.execute(
+          """
+          CREATE TABLE "discriminatedOptionalAttachments" (
+            "id" INTEGER PRIMARY KEY,
+            "kind" TEXT NOT NULL,
+            "note" TEXT
+          ) STRICT
+          """
+        )
+        try db.execute(
+          """
+          INSERT INTO "discriminatedOptionalAttachments"
+          ("kind", "note") VALUES ('note', NULL)
+          """
+        )
       }
 
       @Test func selectAll() {
@@ -535,6 +550,53 @@
           """
         }
       }
+
+      @Test func discriminatedOptionalPayloadSelectAll() {
+        assertQuery(
+          DiscriminatedOptionalAttachment.all
+        ) {
+          """
+          SELECT "discriminatedOptionalAttachments"."id", "discriminatedOptionalAttachments"."kind", "discriminatedOptionalAttachments"."note"
+          FROM "discriminatedOptionalAttachments"
+          """
+        } results: {
+          """
+          ┌──────────────────────────────────┐
+          │ DiscriminatedOptionalAttachment( │
+          │   id: 1,                         │
+          │   kind: .note(nil)               │
+          │ )                                │
+          └──────────────────────────────────┘
+          """
+        }
+      }
+
+      @Test func discriminatedOptionalPayloadInsert() {
+        assertQuery(
+          DiscriminatedOptionalAttachment
+            .insert {
+              DiscriminatedOptionalAttachment.Draft(kind: .note(nil))
+            }
+            .returning(\.self)
+        ) {
+          """
+          INSERT INTO "discriminatedOptionalAttachments"
+          ("id", "kind", "note")
+          VALUES
+          (NULL, 'note', NULL)
+          RETURNING "id", "kind", "note"
+          """
+        } results: {
+          """
+          ┌──────────────────────────────────┐
+          │ DiscriminatedOptionalAttachment( │
+          │   id: 2,                         │
+          │   kind: .note(nil)               │
+          │ )                                │
+          └──────────────────────────────────┘
+          """
+        }
+      }
     }
   }
 
@@ -582,6 +644,16 @@
       let caption: String
       @Column("imageURL")
       let url: URL
+    }
+  }
+
+  @Table private struct DiscriminatedOptionalAttachment {
+    let id: Int
+    let kind: Kind
+
+    @CasePathable @Discriminator("kind") @Selection
+    fileprivate enum Kind {
+      case note(String?)
     }
   }
 #endif

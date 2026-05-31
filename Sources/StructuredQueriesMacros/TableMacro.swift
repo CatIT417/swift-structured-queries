@@ -824,15 +824,24 @@ extension TableMacro: ExtensionMacro {
             case .\(identifier): \(caseDiscriminatorValue)
             """
           )
-          discriminatorAssignments.append(
-            """
-            case \(caseDiscriminatorValue):
-            guard let \(identifier) else {
-            throw \(moduleName).QueryDecodingError.missingRequiredColumn
-            }
-            self = .\(identifier)(\(identifier))
-            """
-          )
+          if columnQueryValueType.isOptionalType {
+            discriminatorAssignments.append(
+              """
+              case \(caseDiscriminatorValue):
+              self = .\(identifier)(\(identifier))
+              """
+            )
+          } else {
+            discriminatorAssignments.append(
+              """
+              case \(caseDiscriminatorValue):
+              guard let \(identifier) else {
+              throw \(moduleName).QueryDecodingError.missingRequiredColumn
+              }
+              self = .\(identifier)(\(identifier))
+              """
+            )
+          }
         }
       }
       if discriminatorColumn != nil {
