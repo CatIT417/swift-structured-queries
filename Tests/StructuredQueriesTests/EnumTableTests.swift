@@ -228,7 +228,7 @@
           """
           SELECT "attachments"."id", "attachments"."link", "attachments"."note", "attachments"."videoURL", "attachments"."videoKind", "attachments"."imageCaption", "attachments"."imageURL"
           FROM "attachments"
-          WHERE ("attachments"."link", "attachments"."note", "attachments"."videoURL", "attachments"."videoKind", "attachments"."imageCaption", "attachments"."imageURL") IS (NULL, 'Today was a good day', NULL, NULL, NULL, NULL)
+          WHERE (("attachments"."link", "attachments"."note", "attachments"."videoURL", "attachments"."videoKind", "attachments"."imageCaption", "attachments"."imageURL") IS (NULL, 'Today was a good day', NULL, NULL, NULL, NULL))
           """
         } results: {
           """
@@ -246,7 +246,7 @@
           """
           SELECT "attachments"."id", "attachments"."link", "attachments"."note", "attachments"."videoURL", "attachments"."videoKind", "attachments"."imageCaption", "attachments"."imageURL"
           FROM "attachments"
-          WHERE ("attachments"."note") IS ('Today was a good day')
+          WHERE (("attachments"."note") IS ('Today was a good day'))
           """
         } results: {
           """
@@ -267,7 +267,7 @@
           """
           SELECT "attachments"."id", "attachments"."link", "attachments"."note", "attachments"."videoURL", "attachments"."videoKind", "attachments"."imageCaption", "attachments"."imageURL"
           FROM "attachments"
-          WHERE ("attachments"."imageCaption", "attachments"."imageURL") IS NOT (NULL, NULL)
+          WHERE (("attachments"."imageCaption", "attachments"."imageURL") IS NOT (NULL, NULL))
           """
         } results: {
           """
@@ -296,7 +296,7 @@
           """
           SELECT "attachments"."id", "attachments"."link", "attachments"."note", "attachments"."videoURL", "attachments"."videoKind", "attachments"."imageCaption", "attachments"."imageURL"
           FROM "attachments"
-          WHERE ("attachments"."imageCaption", "attachments"."imageURL") IS NOT (NULL, NULL)
+          WHERE (("attachments"."imageCaption", "attachments"."imageURL") IS NOT (NULL, NULL))
           """
         } results: {
           """
@@ -373,7 +373,7 @@
           """
           UPDATE "attachments"
           SET "link" = NULL, "note" = 'Good bye world!', "videoURL" = NULL, "videoKind" = NULL, "imageCaption" = NULL, "imageURL" = NULL
-          WHERE ("attachments"."id") IN ((1))
+          WHERE (("attachments"."id") IN ((1)))
           RETURNING "id", "link", "note", "videoURL", "videoKind", "imageCaption", "imageURL"
           """
         } results: {

@@ -1,8 +1,8 @@
 import SwiftBasicFormat
 import SwiftDiagnostics
-import SwiftSyntax
+public import SwiftSyntax
 import SwiftSyntaxBuilder
-import SwiftSyntaxMacros
+public import SwiftSyntaxMacros
 
 public enum TableMacro {}
 
@@ -498,7 +498,8 @@ extension TableMacro: ExtensionMacro {
         func appendColumnProperty(primaryKey: Bool = false) {
           columnsProperties.append(
             """
-            public let \(primaryKey ? "primaryKey" : identifier) = \
+            \(raw: primaryKey ? "@StructuredQueries._PrimaryKeyDefault public var" : "public let") \
+            \(primaryKey ? "primaryKey" : identifier) = \
             \(moduleName).\(raw: tableColumnType)<\
             QueryValue, \
             \(raw: columnQueryValueType?.trimmedDescription ?? "_")\
@@ -1258,7 +1259,8 @@ extension TableMacro: MemberMacro {
         func appendColumnProperty(primaryKey: Bool = false) {
           columnsProperties.append(
             """
-            public let \(primaryKey ? "primaryKey" : identifier) = \
+            \(raw: primaryKey ? "@StructuredQueries._PrimaryKeyDefault public var" : "public let") \
+            \(primaryKey ? "primaryKey" : identifier) = \
             \(moduleName).\(raw: tableColumnType)<\
             QueryValue, \
             \(raw: columnQueryValueType?.trimmedDescription ?? "_")\
